@@ -99,7 +99,7 @@ class RadarHTTPServer(BaseHTTPRequestHandler):
         # Эндпоинт получения исходных данных явления
         elif path == '/get_data':
             try:
-                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=18"
+                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=1"
                 res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
