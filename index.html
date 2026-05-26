@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-Y9QYPS715P"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-Y9QYPS715P');
+    </script>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Композитная карта</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        /**
+         * CSS Reset & Blueprint UI Style
+         */
+        html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p, blockquote, pre, a, abbr, acronym, address, code, del, dfn, em, img, q, dl, dt, dd, fieldset, form, label, legend, table, caption, tbody, tfoot, thead, tr, th, td {margin:0;padding:0;border:0;font-weight:inherit;font-style:inherit;font-size:100%;font-family:inherit;vertical-align:baseline;}
+        body {line-height:1.5;}
+        table {border-collapse:separate;border-spacing:0;}
+        caption, th, td {text-align:left;font-weight:normal;}
+        table, td, th {vertical-align:middle;}
+        blockquote:before, blockquote:after, q:before, q:after {content:"";}
+        blockquote, q {quotes:"" "";}
+        a img {border:none;}
+
+        body {
+            font-family: "Lucida Grande", Verdana, Geneva, Lucida, Arial, Helvetica, sans-serif;
+            font-size: 75%;
+            color: #222;
+            background: #fff;
+            margin: 1em 1.5em;
+            overflow: hidden;
+            height: calc(100vh - 2em);
+        }
+        html {
+            width: 100%;
+            height: 100%;
+        }
+        a[href] {
+            color: #436976;
+            background-color: transparent;
+        }
+        h1 {
+            color: #003a6b;
+            background-color: transparent;
+            font: 100% 'Lucida Grande', Verdana, Geneva, Lucida, Arial, Helvetica, sans-serif;
+            margin: 0;
+            padding-top: 0.5em;
+            font-size: 130%;
+            margin-bottom: 0.5em;
+            border-bottom: 1px solid #fcb100;
+        }
+        h2 {
+            color: #003a6b;
+            font-size: 110%;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        /* Классическая сетка Blueprint: Карта слева, Сайдбар справа */
+        .map {
+            width: 80%;
+            height: 88%;
+            border: 1px solid #ccc;
+            float: left;
+            position: relative;
+        }
+        #legend {
+            width: 18%;
+            float: left;
+            padding-left: 1.5%;
+            height: 88%;
+            overflow-y: auto;
+        }
+        #map_legend {
+            max-width: 100%;
+            display: block;
+            margin-bottom: 15px;
+        }
+        #featureinfo {
+            width: 100%;
+            font-size: 11px;
+            color: #555;
+            margin-top: 10px;
+        }
+        #shortdesc {
+            margin-bottom: 0.8em;
+            font-size: 11px;
+        }
+        #shortdesc select, #shortdesc button {
+            vertical-align: middle;
+        }
+
+        /* Фикс отображения картинок Leaflet против щелей */
+        .leaflet-image-layer,
+        .leaflet-layer img,
+        img.leaflet-tile {
+            image-rendering: -moz-crisp-edges !important;
+            image-rendering: -webkit-optimize-contrast !important;
+            image-rendering: crisp-edges !important;
+            image-rendering: pixelated !important;
+            -ms-interpolation-mode: nearest-neighbor !important;
+        }
+    </style>
+</head>
+<body>
+
+    <h1 id="title">Композитная карта</h1>
+    
+    <p id="shortdesc">
+        Выбор карты:
+        <select id="sourceSelect">
+          <option selected value="metlorad">Опасные явления BUFR</option>
+        </select>
+
+        &nbsp;Timestamp:&nbsp;
+        <input type="range" id="timeline" min="0" max="100" value="100" style="width: 120px; vertical-align: middle;">
+
+        <button type="button" class="play-btn paused" style="font-size: 100%;">▶</button>
+
+        <input type="checkbox" name="oper" value="On" checked style="vertical-align: middle; margin-left: 10px;"> Оперативный режим
+    </p>
+    
+    <div id="map" class="map"></div>
+    
+    <div id="legend"> 
+        <img src="/static/legend.png" alt="legend" id="map_legend" /> 
+        <div id="featureinfo" id="statusBox">Загрузка карты...</div>
+        <br/>
+        <h2>Tools</h2>
+        <p id="tools_panel">
+            <a href="#" onclick="alert('GeoTIFF export'); return false;">скачать GeoTIFF</a>
+            <br/><br/>
+            <a href="#" onclick="alert('KMZ export'); return false;">Сгенерировать KMZ файл</a>
+            <br/> OR <br/>
+            <a href="#" onclick="alert('Accumulated rain'); return false;">View accumulated rain</a>
+        </p>
+    </div>
+
+<script>
+    // Твоя стабильная логика Leaflet
+    const map = L.map('map').setView([55.0, 40.0], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    let currentRadarOverlay = null;
+
+    // Слой-контейнер для радара, чтобы ложился ПОВЕРХ колец
+    const radarPane = map.createPane('radarPane');
+    radarPane.style.zIndex = 450; 
+
+    // Твой точный список метеорадаров 
+    const radarStations = [
+        { name: "Аэропорт Внуково", lat: 55.5961, lng: 37.2614 },
+        { name: "Железнодорожный (Калининградская)", lat: 54.3639, lng: 21.3147 },
+        { name: "Аэропорт Брест", lat: 52.1084, lng: 23.8978 },
+        { name: "Аэропорт Минск", lat: 53.8825, lng: 28.0307 },
+        { name: "Аэропорт Волгоград", lat: 48.7816, lng: 44.3468 },
+        { name: "Петрозаводск", lat: 61.7849, lng: 34.3469 },
+        { name: "Карагайкуль (Челябинская)", lat: 55.6708, lng: 61.2228 },
+        { name: "Аэропорт Сочи", lat: 43.4499, lng: 39.9566 },
+        { name: "Минеральные Воды", lat: 44.2251, lng: 43.0819 },
+        { name: "Аэропорт Краснодар", lat: 45.0347, lng: 39.1685 },
+        { name: "Аэропорт Вологда", lat: 59.2831, lng: 39.9431 },
+        { name: "Валдай", lat: 57.9747, lng: 33.2536 },
+        { name: "Воейково (Санкт-Петербург)", lat: 59.9528, lng: 30.6975 },
+        { name: "Аэропорт Псков", lat: 57.7844, lng: 28.3994 },
+        { name: "Аэропорт Смоленск", lat: 54.8239, lng: 32.0264 },
+        { name: "Ульяновск Аэропорт", lat: 54.2682, lng: 48.2269 },
+        { name: "Казань Аэропорт", lat: 55.6062, lng: 49.2787 },
+        { name: "Миллерово", lat: 48.9214, lng: 40.3981 },
+        { name: "Саратов Аэропорт", lat: 51.6500, lng: 46.1764 },
+        { name: "Самара Аэропорт", lat: 53.5050, lng: 50.1643 },
+        { name: "Уфа Аэропорт", lat: 54.5575, lng: 55.8744 },
+        { name: "Ижевск Аэропорт", lat: 56.8322, lng: 53.4561 },
+        { name: "Нижний новгород", lat: 56.228467, lng: 43.783994 }
+    ];
+
+    // Отрисовка контуров 250 км под радарный слой (opacity: 0.6, weight: 1)
+    radarStations.forEach(station => {
+        L.circle([station.lat, station.lng], {
+            radius: 250000,          
+            color: '#000000',        
+            opacity: 0.6,            
+            weight: 1,               
+            fillColor: 'none',       
+            fillOpacity: 0,
+            interactive: false
+        }).addTo(map);
+    });
+
+    async function updateRadarImage() {
+        const featureinfo = document.getElementById('featureinfo');
+        featureinfo.innerText = "Обновление радарного слоя...";
+
+        const bounds = map.getBounds();
+        const minLng = bounds.getWest();
+        const minLat = bounds.getSouth();
+        const maxLng = bounds.getEast();
+        const maxLat = bounds.getNorth();
+
+        const size = map.getSize();
+        const width = size.x;
+        const height = size.y;
+
+        const bboxParam = `${minLng},${minLat},${maxLng},${maxLat}`;
+        const imageUrl = `get_tile.png?bbox=${bboxParam}&width=${width}&height=${height}`;
+
+        // Радарный слой накладывается ПОВЕРХ кругов и полностью непрозрачен (opacity: 1.0)
+        const newOverlay = L.imageOverlay(imageUrl, bounds, {
+            opacity: 1.0,
+            interactive: false,
+            pane: 'radarPane'
+        });
+
+        newOverlay.addTo(map);
+
+        newOverlay.on('load', () => {
+            if (currentRadarOverlay) {
+                map.removeLayer(currentRadarOverlay);
+            }
+            currentRadarOverlay = newOverlay;
+            featureinfo.innerText = "Данные обновлены. Кликните на карту";
+        });
+    }
+
+    map.on('moveend zoomend resize', updateRadarImage);
+    updateRadarImage();
+</script>
+</body>
+</html>
