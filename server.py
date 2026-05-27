@@ -9,18 +9,24 @@ import os
 
 # Точная палитра из 12 цветов (RGB + Alpha)
 RADAR_PALETTE = {
-    1: (156, 170, 179, 255),  # Обл. Сред. Яруса
-    2: (162, 198, 254, 255),  # Сл. Образования
-    3: (70, 254, 149, 255),   # Осадки слабые
-    4: (1, 194, 94, 255),     # Осадки умеренные
-    5: (1, 154, 8, 255),      # Осадки сильные
-    6: (255, 255, 131, 255),  # Кучевая обл.
-    7: (62, 137, 253, 255),   # Ливень слабый
-    8: (1, 58, 255, 255),     # Ливень умеренный
-    9: (2, 8, 119, 255),      # Ливень сильный
-    10: (255, 171, 128, 255), # Гроза (R)
-    11: (255, 89, 132, 255),  # Гроза R
-    12: (253, 6, 9, 255)      # Гроза R+
+    1: (156, 170, 179, 255),
+    2: (162, 198, 254, 255),
+    3: (70, 254, 149, 255),
+    4: (1, 194, 94, 255),
+    5: (1, 154, 8, 255),
+    6: (255, 255, 131, 255),
+    7: (62, 137, 253, 255),
+    8: (1, 58, 255, 255),
+    9: (2, 8, 119, 255),
+    10: (255, 171, 128, 255),
+    11: (255, 89, 132, 255),
+    12: (253, 6, 9, 255),
+    13: (205, 105, 8),
+    14: (143, 73, 15),
+    15: (88, 14, 8),
+    16: (255, 171, 255),
+    17: (255, 88, 255),
+    18: (200, 9, 202),
 }
 
 def lat_to_mercator(lat):
@@ -32,9 +38,18 @@ def lon_to_mercator(lon):
     r_major = 6378137.0
     return r_major * math.radians(lon)
 
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371000  # радиус Земли в метрах
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
 class RadarHTTPServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        return  # Отключение спама в консоль
+        return  # тишина
 
     def do_GET(self):
         parsed_url = urlparse(self.path)
@@ -50,71 +65,29 @@ class RadarHTTPServer(BaseHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(f.read())
             except FileNotFoundError:
-                self.send_error(404, "File index.html not found")
+                self.send_error(404, "index.html not found")
             return
 
-        # Подключение стилей
-        elif path == '/style.css':
-            try:
-                with open('style.css', 'rb') as f:
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'text/css')
-                    self.end_headers()
-                    self.wfile.write(f.read())
-            except FileNotFoundError:
-                self.send_error(404, "File style.css not found")
-            return
-
-        # Подключение логики карты
-        elif path == '/demo.js':
-            try:
-                with open('demo.js', 'rb') as f:
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/javascript')
-                    self.end_headers()
-                    self.wfile.write(f.read())
-            except FileNotFoundError:
-                self.send_error(404, "File demo.js not found")
-            return
-
-        # Статическая легенда из папки static
-        elif path == '/static/legend.png':
-            if os.path.exists('static/legend.png'):
-                with open('static/legend.png', 'rb') as f:
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'image/png')
-                    self.end_headers()
-                    self.wfile.write(f.read())
-            else:
-                # Если файла физически нет, отдаем пустую заглушку во избежание краша UI
-                img = Image.new('RGBA', (150, 300), (255, 255, 255, 0))
-                img_io = io.BytesIO()
-                img.save(img_io, 'PNG')
-                self.send_response(200)
-                self.send_header('Content-Type', 'image/png')
-                self.end_headers()
-                self.wfile.write(img_io.getvalue())
-            return
-
-        # Эндпоинт получения исходных данных явления
+        # Эндпоинт получения полных данных (для отладки, не обязателен)
         elif path == '/get_data':
             try:
-                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=18"
+                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=35"
                 res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(res.content)
             except Exception as e:
-                self.send_error(500, f"Internal Server Error: {str(e)}")
+                self.send_error(500, f"Error: {str(e)}")
             return
 
-        # Эндпоинт генерации радарного PNG тайла
+        # Генерация тайла PNG с учётом фильтра по радару
         elif path == '/get_tile.png':
             try:
                 bbox_list = query_params.get('bbox')
                 width_list = query_params.get('width', ['800'])
                 height_list = query_params.get('height', ['600'])
+                radar_filter = query_params.get('radar', [None])[0]  # None, 'all' или конкретный stringId
 
                 if not bbox_list:
                     self.send_response(400)
@@ -135,7 +108,7 @@ class RadarHTTPServer(BaseHTTPRequestHandler):
                 img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
                 draw = ImageDraw.Draw(img)
 
-                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=18"
+                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=35"
                 res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
                 data = res.json()
 
@@ -144,6 +117,11 @@ class RadarHTTPServer(BaseHTTPRequestHandler):
                 scale_y = height / (y_max - y_min)
 
                 for f in data.get('features', []):
+                    # Фильтр по радару
+                    if radar_filter and radar_filter != 'all':
+                        if f.get('stringId') != radar_filter:
+                            continue
+
                     strength = f.get('strength')
                     if not strength or strength not in RADAR_PALETTE:
                         continue
@@ -165,8 +143,7 @@ class RadarHTTPServer(BaseHTTPRequestHandler):
                     if px2 <= px1: px2 = px1 + 1
                     if py2 <= py1: py2 = py1 + 1
 
-                    color = RADAR_PALETTE[strength]
-                    draw.rectangle([px1, py1, px2, py2], fill=color)
+                    draw.rectangle([px1, py1, px2, py2], fill=RADAR_PALETTE[strength])
 
                 img_io = io.BytesIO()
                 img.save(img_io, 'PNG')
@@ -176,6 +153,63 @@ class RadarHTTPServer(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'image/png')
                 self.end_headers()
                 self.wfile.write(img_io.getvalue())
+
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(str(e).encode('utf-8'))
+            return
+
+        # Информация о точке при клике
+        elif path == '/get_point_info':
+            try:
+                lat = float(query_params.get('lat', [None])[0])
+                lon = float(query_params.get('lon', [None])[0])
+                radar_filter = query_params.get('radar', [None])[0]  # None, 'all' или stringId
+
+                if lat is None or lon is None:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+
+                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=35"
+                res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                data = res.json()
+
+                results = []
+                for f in data.get('features', []):
+                    if radar_filter and radar_filter != 'all':
+                        if f.get('stringId') != radar_filter:
+                            continue
+
+                    strength = f.get('strength')
+                    if not strength or strength not in RADAR_PALETTE:
+                        continue
+
+                    f_lat = f['lat']
+                    f_lon = f['lon']
+                    # Радиус поиска ~20 км
+                    if haversine(lat, lon, f_lat, f_lon) > 20000:
+                        continue
+
+                    results.append({
+                        "lat": f_lat,
+                        "lon": f_lon,
+                        "strength": strength,
+                        "radarId": f.get('radarId'),
+                        "stringId": f.get('stringId'),
+                        "distance_m": haversine(lat, lon, f_lat, f_lon)
+                    })
+
+                # Сортируем по расстоянию
+                results.sort(key=lambda x: x['distance_m'])
+                # Берем не более 5 ближайших
+                results = results[:5]
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(results, ensure_ascii=False).encode('utf-8'))
 
             except Exception as e:
                 self.send_response(500)
