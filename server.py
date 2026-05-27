@@ -135,7 +135,7 @@ class RadarHTTPServer(BaseHTTPRequestHandler):
                 img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
                 draw = ImageDraw.Draw(img)
 
-                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=0"
+                url = "https://metlorad.ru/api/cwt/phenomena-new?frame=18"
                 res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
                 data = res.json()
 
